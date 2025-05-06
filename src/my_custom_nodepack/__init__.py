@@ -1,4 +1,5 @@
-from .nodes import ProjectContextNode, PixelArtGridNode
+from .project_context_node import ProjectContextNode # Changed from .nodes
+from .pixel_art_grid_node import PixelArtGridNode # Changed from .nodes
 from .gpt_image import GPTImageGenerator
 from .string_utils import StringListToString
 from .dynamic_lora_stack import DynamicLoraStack
@@ -22,4 +23,3 @@ NODE_DISPLAY_NAME_MAPPINGS = {
 }
 __all__ = ["NODE_CLASS_MAPPINGS", "NODE_DISPLAY_NAME_MAPPINGS"]
 
- 
