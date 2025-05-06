@@ -1,16 +1,14 @@
-import typing  # for type hints
+import typing
 if typing.TYPE_CHECKING:
-    import torch  # type: ignore[import-unresolved]
+    import torch
 else:
     try:
         import torch
     except ImportError:
-        pass  # torch will be available in ComfyUI runtime
+        pass
 
 import numpy as np
-from PIL import Image # ImageOps is no longer needed as ProjectContextNode and PixelArtGridNode are removed
-
-# os and date are no longer needed as ProjectContextNode is removed
+from PIL import Image
 
 def tensor_to_pil(tensor):
     """Converts a torch tensor (B, H, W, C) [0, 1] to a list of PIL Images [0, 255]."""
@@ -45,12 +43,3 @@ def pil_to_tensor(pil_images):
 
     # Stack tensors along a new batch dimension
     return torch.stack(tensors)
-
-
-# --- ComfyUI Registration ---
-# Updated mappings to remove ProjectContextNode
-NODE_CLASS_MAPPINGS = {
-}
-
-NODE_DISPLAY_NAME_MAPPINGS = {
-}
