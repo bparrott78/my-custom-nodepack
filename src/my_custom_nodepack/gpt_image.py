@@ -162,7 +162,6 @@ class GPTImageGenerator:
                     # Take only the first image from each tensor
                     img_base64 = pil_to_base64(pil_images[0])
                     reference_images.append(f"data:image/png;base64,{img_base64}")
-        
         # Add reference images to request if available
         if reference_images:
             data["reference_images"] = reference_images
