@@ -115,8 +115,7 @@ class GPTImageGenerator:
     @classmethod
     def INPUT_TYPES(cls):
         """
-        Defines the input fields for the node, including API key, prompt, number of images, size, response format,
-        and up to three optional reference images.
+        Defines the input fields for the node, including all documented options for GPT-Image-1 API.
         """
         return {
             "required": {
@@ -124,10 +123,14 @@ class GPTImageGenerator:
                 "save_api_key": (["no", "yes"],),
                 "prompt": ("STRING", {"multiline": True, "default": ""}),
                 "n": ("INT", {"default": 1, "min": 1, "max": 4}),
-                "size": (["1024x1024", "1024x1792", "1792x1024"],),
-                "response_format": (["b64_json", "url"], {"default": "b64_json"}),
+                "size": (["1024x1024", "1536x1024", "1024x1536", "auto"], {"default": "auto"}),
+                "quality": (["auto", "low", "medium", "high"], {"default": "auto"}),
+                "output_format": (["png", "jpeg", "webp"], {"default": "png"}),
+                "moderation": (["auto", "low"], {"default": "auto"}),
+                "background": (["auto", "transparent", "opaque"], {"default": "auto"}),
             },
             "optional": {
+                "output_compression": ("INT", {"default": 0, "min": 0, "max": 100}),
                 "image_1": ("IMAGE",),
                 "image_2": ("IMAGE",),
                 "image_3": ("IMAGE",),
@@ -138,7 +141,7 @@ class GPTImageGenerator:
     FUNCTION = "generate"
     CATEGORY = "MyCustomNodePack/OpenAI"
 
-    def generate(self, api_key, save_api_key, prompt, n, size, response_format, image_1=None, image_2=None, image_3=None):
+    def generate(self, api_key, save_api_key, prompt, n, size, quality, output_format, moderation, background, output_compression=0, image_1=None, image_2=None, image_3=None):
         """
         Main node function. Sends a request to OpenAI's API to generate or edit images.
         Validates input values and provides user-friendly error messages for common mistakes.
@@ -153,15 +156,30 @@ class GPTImageGenerator:
             if not api_key:
                 raise ValueError("OpenAI API Key is required. Please enter an API key or load a saved one.")
 
-        # Validate response_format
-        allowed_formats = ["b64_json", "url"]
-        if response_format not in allowed_formats:
-            raise ValueError(f"response_format must be one of {allowed_formats}, got '{response_format}'")
-
         # Validate size
-        allowed_sizes = ["1024x1024", "1024x1792", "1792x1024"]
+        allowed_sizes = ["1024x1024", "1536x1024", "1024x1536", "auto"]
         if size not in allowed_sizes:
             raise ValueError(f"size must be one of {allowed_sizes}, got '{size}'")
+
+        # Validate quality
+        allowed_quality = ["auto", "low", "medium", "high"]
+        if quality not in allowed_quality:
+            raise ValueError(f"quality must be one of {allowed_quality}, got '{quality}'")
+
+        # Validate output_format
+        allowed_output_format = ["png", "jpeg", "webp"]
+        if output_format not in allowed_output_format:
+            raise ValueError(f"output_format must be one of {allowed_output_format}, got '{output_format}'")
+
+        # Validate moderation
+        allowed_moderation = ["auto", "low"]
+        if moderation not in allowed_moderation:
+            raise ValueError(f"moderation must be one of {allowed_moderation}, got '{moderation}'")
+
+        # Validate background
+        allowed_background = ["auto", "transparent", "opaque"]
+        if background not in allowed_background:
+            raise ValueError(f"background must be one of {allowed_background}, got '{background}'")
 
         # Validate n
         try:
@@ -170,6 +188,17 @@ class GPTImageGenerator:
             raise ValueError(f"n must be an integer (number of images to generate), got '{n}'")
         if not (1 <= n_int <= 4):
             raise ValueError("n must be between 1 and 4")
+
+        # Validate output_compression
+        if output_format in ["jpeg", "webp"]:
+            try:
+                output_compression_int = int(output_compression)
+            except Exception:
+                raise ValueError(f"output_compression must be an integer between 0 and 100, got '{output_compression}'")
+            if not (0 <= output_compression_int <= 100):
+                raise ValueError("output_compression must be between 0 and 100")
+        else:
+            output_compression_int = None
 
         headers = {"Authorization": f"Bearer {api_key}"}
 
@@ -183,6 +212,20 @@ class GPTImageGenerator:
                 img_byte_arr.seek(0)
                 images.append(img_byte_arr)
 
+        # Build payload for both endpoints
+        payload = {
+            "model": "gpt-image-1",
+            "prompt": prompt,
+            "n": str(n_int) if images else n_int,
+            "size": size,
+            "quality": quality,
+            "output_format": output_format,
+            "moderation": moderation,
+            "background": background,
+        }
+        if output_compression_int is not None:
+            payload["output_compression"] = output_compression_int
+
         if images:
             # Edits endpoint: multipart/form-data
             endpoint = "https://api.openai.com/v1/images/edits"
@@ -190,25 +233,12 @@ class GPTImageGenerator:
             for idx, img_bytes in enumerate(images):
                 key = "image" if idx == 0 else f"image_{idx+1}"
                 files[key] = (f"image_{idx+1}.png", img_bytes, "image/png")
-            data = {
-                "model": "gpt-image-1",
-                "prompt": prompt,
-                "n": str(n_int),
-                "size": size
-            }
-            response = requests.post(endpoint, headers=headers, files=files, data=data)
+            response = requests.post(endpoint, headers=headers, files=files, data=payload)
         else:
             # Generations endpoint: application/json
             endpoint = "https://api.openai.com/v1/images/generations"
             headers["Content-Type"] = "application/json"
-            data = {
-                "model": "gpt-image-1",
-                "prompt": prompt,
-                "n": n_int,
-                "size": size,
-                "response_format": response_format
-            }
-            response = requests.post(endpoint, headers=headers, json=data)
+            response = requests.post(endpoint, headers=headers, json=payload)
 
         # Handle API errors
         if response.status_code != 200:
@@ -223,11 +253,12 @@ class GPTImageGenerator:
         result = response.json()
         output_images = []
         for item in result["data"]:
-            if response_format == "b64_json":
-                base64_data = item["b64_json"]
+            # Always expect b64_json for now, as OpenAI docs say API returns base64-encoded image data
+            base64_data = item.get("b64_json")
+            if base64_data:
                 pil_image = base64_to_pil(base64_data)
                 output_images.append(pil_to_tensor(pil_image))
-            elif response_format == "url":
+            elif "url" in item:
                 img_url = item["url"]
                 img_resp = requests.get(img_url)
                 pil_image = Image.open(io.BytesIO(img_resp.content))
